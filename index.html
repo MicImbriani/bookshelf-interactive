@@ -461,12 +461,12 @@
   <div class="ai-panel" id="ai-panel" role="dialog" aria-modal="true" aria-label="Customize with AI">
     <header>
       <h3>✨ Customize with AI</h3>
-      <p>Describe any vibe — Claude rewrites the color palette live.</p>
+      <p>Describe any vibe — Gemini rewrites the color palette live.</p>
     </header>
     <div class="ai-field">
-      <label for="ai-key">Anthropic API Key</label>
-      <input id="ai-key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
-      <span class="hint">Stored in your browser only — sent directly to api.anthropic.com, never via this server.</span>
+      <label for="ai-key">Google AI Studio API Key</label>
+      <input id="ai-key" type="password" placeholder="AIza…" autocomplete="off" spellcheck="false" />
+      <span class="hint">Stored in your browser only — sent directly to generativelanguage.googleapis.com, never via this server. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--accent-deep);">Get a key</a>.</span>
     </div>
     <div class="ai-field">
       <label for="ai-prompt">Describe the aesthetic</label>
@@ -908,7 +908,7 @@ const aiStatusRow= document.getElementById("ai-status-row");
 const aiStatusTxt= document.getElementById("ai-status-txt");
 const aiGenBtn   = document.getElementById("ai-generate");
 
-aiKeyEl.value = localStorage.getItem("ai:apiKey") || "";
+aiKeyEl.value = localStorage.getItem("ai:geminiKey") || "";
 
 function openAiPanel() {
   els.scrim.classList.add("show");
@@ -945,12 +945,14 @@ function resetToDefaults() {
   for (const k of Object.keys(DEFAULT_TOKENS)) root.style.removeProperty(k);
 }
 
+const GEMINI_MODEL = "gemini-2.5-flash";
+
 aiGenBtn.onclick = async () => {
   const key = aiKeyEl.value.trim();
-  if (!key) { aiKeyEl.focus(); setAiStatus("Please enter your Anthropic API key first."); return; }
+  if (!key) { aiKeyEl.focus(); setAiStatus("Please enter your Google AI Studio API key first."); return; }
   const prompt = aiPromptEl.value.trim();
   if (!prompt) { aiPromptEl.focus(); setAiStatus("Describe the aesthetic you want."); return; }
-  localStorage.setItem("ai:apiKey", key);
+  localStorage.setItem("ai:geminiKey", key);
 
   aiGenBtn.disabled = true;
   setAiStatus("Thinking…", true);
@@ -986,20 +988,21 @@ Rules:
   let errorMsg = null;
 
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
+    const resp = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
+        "x-goog-api-key": key,
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5",
-        max_tokens: 512,
-        stream: true,
-        system: SYSTEM,
-        messages: [{ role: "user", content: `Theme request: ${prompt}` }],
+        systemInstruction: { parts: [{ text: SYSTEM }] },
+        contents: [{ role: "user", parts: [{ text: `Theme request: ${prompt}` }] }],
+        generationConfig: {
+          maxOutputTokens: 1024,
+          temperature: 1.0,
+          responseMimeType: "application/json",
+        },
       }),
     });
 
@@ -1019,12 +1022,11 @@ Rules:
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const raw = line.slice(6).trim();
-          if (raw === "[DONE]") continue;
+          if (!raw || raw === "[DONE]") continue;
           try {
             const evt = JSON.parse(raw);
-            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
-              accumulated += evt.delta.text;
-            }
+            const parts = evt?.candidates?.[0]?.content?.parts;
+            if (parts) for (const p of parts) if (typeof p.text === "string") accumulated += p.text;
           } catch (_) {}
         }
       }
