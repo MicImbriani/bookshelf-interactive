@@ -409,6 +409,23 @@
   .ai-foot { display: flex; justify-content: space-between; align-items: center; padding: 0 24px 20px; gap: 10px; flex-wrap: wrap; }
   .btn.ai-gen { background: linear-gradient(180deg, #e0cef7, #c6a6e4 90%); color: #3c2f52; border-color: transparent; }
   .btn.ai-gen:disabled { opacity: .5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+  .ai-code-block {
+    margin: 0 24px 14px;
+    border: 1px solid rgba(160,124,200,.35); border-radius: 14px; overflow: hidden;
+  }
+  .ai-code-label {
+    padding: 8px 14px; font-size: 11px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: rgba(255,255,255,.55);
+    background: #1e1a2e; border-bottom: 1px solid rgba(160,124,200,.2);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .ai-code-label::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #e4a0c0; flex-shrink: 0; }
+  .ai-code-block pre {
+    margin: 0; padding: 14px; background: #1e1a2e; color: #d4c9e8;
+    font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; line-height: 1.6;
+    max-height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+  }
 </style>
 </head>
 <body>
@@ -461,7 +478,7 @@
   <div class="ai-panel" id="ai-panel" role="dialog" aria-modal="true" aria-label="Customize with AI">
     <header>
       <h3>✨ Customize with AI</h3>
-      <p>Describe any vibe — Gemini rewrites the color palette live.</p>
+      <p>Describe anything — Gemini writes JavaScript that runs against the live page.</p>
     </header>
     <div class="ai-field">
       <label for="ai-key">Google AI Studio API Key</label>
@@ -469,15 +486,23 @@
       <span class="hint">Stored in your browser only — sent directly to generativelanguage.googleapis.com, never via this server. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--accent-deep);">Get a key</a>.</span>
     </div>
     <div class="ai-field">
-      <label for="ai-prompt">Describe the aesthetic</label>
-      <textarea id="ai-prompt" placeholder="e.g. midnight library with deep navy and gold… warm autumn study with amber and rust… cool ocean breeze with seafoam and slate…"></textarea>
+      <label for="ai-prompt">Describe what you want</label>
+      <textarea id="ai-prompt" placeholder="e.g. midnight library… reduce to 3 shelves… warm autumn study… hide the plaque… serif everywhere…"></textarea>
     </div>
     <div class="ai-status-row" id="ai-status-row"><div class="ai-pulse"></div><span id="ai-status-txt"></span></div>
+    <div class="ai-code-block" id="ai-code-block" hidden>
+      <div class="ai-code-label">Review before applying</div>
+      <pre id="ai-code-pre"></pre>
+    </div>
     <div class="ai-foot">
-      <button class="btn ghost-btn" id="ai-reset">Reset to defaults</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn ghost-btn" id="ai-reset">Reset</button>
+        <button class="btn ghost-btn" id="ai-revert" hidden>Revert last</button>
+      </div>
       <div style="display:flex;gap:8px;">
         <button class="btn ghost-btn" id="ai-close">Close</button>
-        <button class="btn ai-gen" id="ai-generate">Generate ✨</button>
+        <button class="btn ai-gen" id="ai-apply" disabled>Apply ✨</button>
+        <button class="btn ai-gen" id="ai-generate">Generate</button>
       </div>
     </div>
   </div>
@@ -925,11 +950,6 @@ els.scrim.onclick = () => { closePanel(); closeAiPanel(); };
 
 document.getElementById("ai-btn").onclick   = openAiPanel;
 document.getElementById("ai-close").onclick = closeAiPanel;
-document.getElementById("ai-reset").onclick = () => {
-  resetToDefaults();
-  setAiStatus("");
-  toast("Reset to defaults");
-};
 
 function setAiStatus(msg, streaming = false) {
   aiStatusTxt.textContent = msg;
@@ -943,46 +963,168 @@ function applyTokens(tokens) {
 function resetToDefaults() {
   const root = document.documentElement;
   for (const k of Object.keys(DEFAULT_TOKENS)) root.style.removeProperty(k);
+  const injected = document.getElementById("ai-injected-style");
+  if (injected) injected.textContent = "";
 }
 
+/* --- bookshelf API exposed to AI-generated code --- */
+const bookshelfAPI = {
+  setTokens(tokens)  { applyTokens(tokens); },
+  resetTokens()      { resetToDefaults(); },
+  setConfig(cfg) {
+    if (cfg.shelves != null)       { state.config.shelves = cfg.shelves; SHELVES = cfg.shelves; }
+    if (cfg.slotsPerShelf != null) { state.config.slotsPerShelf = cfg.slotsPerShelf; SLOTS = cfg.slotsPerShelf; STEP = 360 / SLOTS; document.documentElement.style.setProperty("--step", STEP + "deg"); }
+    if (cfg.title != null)         { state.config.title = cfg.title; els.plaque.firstChild.textContent = cfg.title; }
+    render(); fitWorld();
+  },
+  setCSS(cssText) {
+    let el = document.getElementById("ai-injected-style");
+    if (!el) { el = document.createElement("style"); el.id = "ai-injected-style"; document.head.appendChild(el); }
+    el.textContent = cssText;
+  },
+  getState()  { return JSON.parse(JSON.stringify(state)); },
+  toast(msg)  { toast(msg); },
+  render,
+};
+
+/* --- static safety check --- */
+const BLOCKED_PATTERNS = [
+  [/\bfetch\b/,              "fetch (network access)"],
+  [/\bXMLHttpRequest\b/,     "XMLHttpRequest"],
+  [/\bWebSocket\b/,          "WebSocket"],
+  [/navigator\.sendBeacon/,  "navigator.sendBeacon"],
+  [/\blocalStorage\b/,       "localStorage"],
+  [/\bsessionStorage\b/,     "sessionStorage"],
+  [/\bindexedDB\b/,          "indexedDB"],
+  [/document\.cookie/,       "document.cookie"],
+  [/\beval\b/,               "eval"],
+  [/new\s+Function/,         "new Function"],
+  [/import\s*\(/,            "dynamic import()"],
+  [/require\s*\(/,           "require()"],
+  [/window\.location/,       "window.location"],
+  [/document\.location/,     "document.location"],
+  [/window\.open/,           "window.open"],
+  [/document\.write/,        "document.write"],
+];
+
+function checkCode(code) {
+  if (code.length > 8000) return "Code exceeds 8 000 character limit.";
+  for (const [re, label] of BLOCKED_PATTERNS) {
+    if (re.test(code)) return `Blocked: ${label}`;
+  }
+  return null;
+}
+
+/* --- state snapshot for revert --- */
+let aiSnapshot = null;
+
+function takeSnapshot() {
+  const root = document.documentElement;
+  const tokens = {};
+  for (const k of Object.keys(DEFAULT_TOKENS)) tokens[k] = root.style.getPropertyValue(k);
+  return {
+    tokens,
+    injectedCSS: document.getElementById("ai-injected-style")?.textContent || "",
+    config: JSON.parse(JSON.stringify(state.config)),
+  };
+}
+
+function restoreSnapshot(snap) {
+  const root = document.documentElement;
+  for (const [k, v] of Object.entries(snap.tokens)) {
+    if (v) root.style.setProperty(k, v); else root.style.removeProperty(k);
+  }
+  const injected = document.getElementById("ai-injected-style");
+  if (injected) injected.textContent = snap.injectedCSS;
+  bookshelfAPI.setConfig(snap.config);
+}
+
+/* --- apply / reset / revert buttons --- */
+const aiApplyBtn  = document.getElementById("ai-apply");
+const aiRevertBtn = document.getElementById("ai-revert");
+let pendingCode = null;
+
+document.getElementById("ai-reset").onclick = () => {
+  resetToDefaults();
+  setAiStatus("");
+  document.getElementById("ai-code-block").hidden = true;
+  aiApplyBtn.disabled = true;
+  pendingCode = null;
+  toast("Reset to defaults");
+};
+
+aiRevertBtn.onclick = () => {
+  if (aiSnapshot) { restoreSnapshot(aiSnapshot); toast("Reverted"); }
+};
+
+aiApplyBtn.onclick = () => {
+  if (!pendingCode) return;
+  aiSnapshot = takeSnapshot();
+  try {
+    // Code runs with only `document` and `bookshelf` in scope — no raw window/globals.
+    // eslint-disable-next-line no-new-func
+    new Function("document", "bookshelf", pendingCode)(document, bookshelfAPI);
+    toast("Applied ✨");
+    aiRevertBtn.hidden = false;
+    aiApplyBtn.disabled = true;
+    pendingCode = null;
+  } catch (e) {
+    setAiStatus("Error running code: " + e.message);
+    console.error("AI code error:", e);
+  }
+};
+
+/* --- generate --- */
 const GEMINI_MODEL = "gemini-2.5-flash";
+
+const SYSTEM = `You are a JavaScript code generator for a pastel bookshelf webapp.
+Return ONLY a valid JSON object — no markdown, no code fences, no explanation.
+
+JSON format (exactly two keys):
+{"code":"/* js snippet */","summary":"One sentence describing what the change does."}
+
+The code snippet runs inside a function with two arguments in scope: \`document\` and \`bookshelf\`.
+Use \`bookshelf\` methods to make changes — these are the only safe APIs:
+
+bookshelf.setTokens({ "--bg-lavender": "#hex", ... })
+  Update CSS design tokens. Available:
+  --bg-lavender, --bg-mint, --bg-blush, --bg-cream  (background gradient layers)
+  --wood, --wood-edge, --wood-shadow                 (shelf plank colours)
+  --ink, --ink-soft                                  (text colours)
+  --accent, --accent-deep, --mint-deep               (UI accent colours)
+
+bookshelf.setCSS("full css string")
+  Inject an arbitrary <style> sheet. Use this for fonts, layout changes, hiding/showing
+  elements, restyling the plaque, controls, buttons — anything not covered by tokens.
+
+bookshelf.setConfig({ shelves: 3, slotsPerShelf: 12, title: "New Title" })
+  Restructure the cylinder. All keys optional. Re-renders automatically.
+
+bookshelf.toast("message")
+  Show a brief notification.
+
+bookshelf.getState()
+  Returns a read-only { config, books } snapshot.
+
+You also have full \`document\` access for direct DOM manipulation (style, classList, textContent, etc.).
+
+Rules:
+- Use ONLY the \`bookshelf\` methods above plus \`document\`. No fetch, eval, localStorage, cookies.
+- The "summary" key must describe what the code does in one sentence.
+- Return ONLY the JSON object — nothing else.`;
 
 aiGenBtn.onclick = async () => {
   const key = aiKeyEl.value.trim();
   if (!key) { aiKeyEl.focus(); setAiStatus("Please enter your Google AI Studio API key first."); return; }
   const prompt = aiPromptEl.value.trim();
-  if (!prompt) { aiPromptEl.focus(); setAiStatus("Describe the aesthetic you want."); return; }
+  if (!prompt) { aiPromptEl.focus(); setAiStatus("Describe what you want."); return; }
   localStorage.setItem("ai:geminiKey", key);
 
   aiGenBtn.disabled = true;
-  setAiStatus("Thinking…", true);
-
-  const SYSTEM = `You are a UI theming assistant for a soft pastel bookshelf webapp using CSS custom properties.
-Respond with ONLY a valid JSON object — no explanation, no markdown, no code fences.
-
-JSON format (exactly two keys):
-{"tokens":{"<css-var>":"<hex>"},"summary":"One sentence describing the new theme."}
-
-Available CSS variables and what they control:
---bg-lavender  background radial layer 1
---bg-mint      background radial layer 2
---bg-blush     background radial layer 3
---bg-cream     background base
---wood         shelf surface
---wood-edge    shelf edge and lip
---wood-shadow  shelf shadow color
---ink          primary text (must stay readable — keep dark)
---ink-soft     muted / secondary text
---accent       primary accent (buttons, focus rings, slot highlights)
---accent-deep  deep accent (links, active states)
---mint-deep    secondary accent
-
-Rules:
-- All colors must be soft and muted — pastel or semi-pastel only, never harsh or saturated.
-- Background vars (--bg-*) must be light and atmospheric.
-- --ink must contrast sufficiently against the background (keep it dark).
-- You may change any subset; omit vars you want unchanged.
-- Return ONLY the JSON object, nothing else.`;
+  aiApplyBtn.disabled = true;
+  pendingCode = null;
+  document.getElementById("ai-code-block").hidden = true;
+  setAiStatus("Generating…", true);
 
   let accumulated = "";
   let errorMsg = null;
@@ -991,18 +1133,11 @@ Rules:
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
     const resp = await fetch(url, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": key,
-      },
+      headers: { "content-type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM }] },
-        contents: [{ role: "user", parts: [{ text: `Theme request: ${prompt}` }] }],
-        generationConfig: {
-          maxOutputTokens: 1024,
-          temperature: 1.0,
-          responseMimeType: "application/json",
-        },
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 2048, temperature: 1.0, responseMimeType: "application/json" },
       }),
     });
 
@@ -1037,21 +1172,24 @@ Rules:
 
   aiGenBtn.disabled = false;
 
-  if (errorMsg) {
-    setAiStatus("Error: " + errorMsg);
-    return;
-  }
+  if (errorMsg) { setAiStatus("Error: " + errorMsg); return; }
 
   try {
     const cleaned = accumulated.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
     const result = JSON.parse(cleaned);
-    if (!result.tokens || typeof result.tokens !== "object") throw new Error("No tokens field");
-    applyTokens(result.tokens);
-    setAiStatus(result.summary || "Theme applied — use Reset to revert.");
-    toast("Theme applied ✨");
+    if (typeof result.code !== "string") throw new Error("No code field in response");
+
+    const blockReason = checkCode(result.code);
+    if (blockReason) { setAiStatus(blockReason); return; }
+
+    pendingCode = result.code;
+    document.getElementById("ai-code-pre").textContent = result.code;
+    document.getElementById("ai-code-block").hidden = false;
+    setAiStatus(result.summary || "Review the code above, then click Apply.");
+    aiApplyBtn.disabled = false;
   } catch (e) {
     setAiStatus("Couldn't parse AI response. Please try again.");
-    console.error("AI theme parse error:", e, accumulated);
+    console.error("AI parse error:", e, accumulated);
   }
 };
 
