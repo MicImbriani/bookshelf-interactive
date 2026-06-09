@@ -1,0 +1,15 @@
+{
+  "name": "bookshelf-interactive",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A calm, pastel rotating cylinder bookshelf for displaying books you've read.",
+  "scripts": {
+    "start": "node serve.mjs",
+    "dev": "node serve.mjs",
+    "screenshot": "node screenshot.mjs http://localhost:3000"
+  },
+  "devDependencies": {
+    "puppeteer": "^23.0.0"
+  }
+}

@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Books I've Read — a calm cylinder library</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Nunito+Sans:wght@300;400;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* ----------------------------------------------------------------------
+     Design tokens — soft pastel system (no default Tailwind palette).
+     Geometry vars are the tuning knobs for the cylinder; adjust + reload.
+  ---------------------------------------------------------------------- */
+  :root {
+    /* palette */
+    --bg-lavender: #efe7f6;
+    --bg-mint:     #e6f1ea;
+    --bg-blush:    #fbeef0;
+    --bg-cream:    #f7f1ea;
+    --wood:        #ecddca;
+    --wood-edge:   #dcc6ab;
+    --wood-shadow: #b89a76;
+    --ink:         #4c4658;
+    --ink-soft:    #837b92;
+    --accent:      #c6a6e4;   /* soft lilac */
+    --accent-deep: #a07cc8;
+    --mint-deep:   #8fc4a8;
+
+    /* geometry (tuning knobs) */
+    --book-w: 92px;
+    --book-h: 138px;
+    --row-h: 176px;
+    --radius: 430px;
+    --persp: 1700px;
+    --step: 20deg;       /* 360 / slots */
+    --platform-d: 66px;
+    --angle: 0deg;       /* live rotation, driven by JS */
+    --world-scale: 1;
+
+    /* spacing tokens */
+    --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; height: 100%;
+    font-family: "Nunito Sans", system-ui, sans-serif;
+    color: var(--ink);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* layered pastel atmosphere + grain */
+  body {
+    background:
+      radial-gradient(120% 90% at 18% 12%, var(--bg-lavender) 0%, transparent 55%),
+      radial-gradient(110% 85% at 85% 18%, var(--bg-blush) 0%, transparent 50%),
+      radial-gradient(130% 120% at 50% 110%, var(--bg-mint) 0%, transparent 60%),
+      linear-gradient(160deg, #f4eef7 0%, #eef3ef 100%);
+  }
+  body::before { /* grain */
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    opacity: .05; mix-blend-mode: multiply;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  /* soft vignette to seat the cylinder in space */
+  body::after {
+    content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background: radial-gradient(120% 80% at 50% 42%, transparent 55%, rgba(76,70,88,.10) 100%);
+  }
+
+  /* ----------------------------------------------------------------------
+     Header plaque (pastel echo of the reference's label tab)
+  ---------------------------------------------------------------------- */
+  .plaque {
+    position: fixed; top: 26px; left: 50%; transform: translateX(-50%);
+    z-index: 30; padding: 11px 30px;
+    background: linear-gradient(180deg, #fbf6ef 0%, #f1e7d9 100%);
+    border: 1px solid rgba(184,154,118,.45);
+    border-radius: 14px;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.8) inset,
+      0 10px 24px -12px rgba(160,124,200,.45),
+      0 2px 6px rgba(120,90,60,.12);
+    font-family: "Fraunces", serif; font-weight: 500;
+    letter-spacing: -0.01em; font-size: 20px; color: #5b4f63;
+    text-align: center;
+  }
+  .plaque small {
+    display: block; font-family: "Nunito Sans", sans-serif;
+    font-weight: 400; font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-soft); margin-top: 2px;
+  }
+
+  /* ----------------------------------------------------------------------
+     3D stage + cylinder
+  ---------------------------------------------------------------------- */
+  .stage {
+    position: fixed; inset: 0; z-index: 10;
+    perspective: var(--persp);
+    perspective-origin: 50% 44%;
+    cursor: grab;
+  }
+  .stage.dragging { cursor: grabbing; }
+
+  .cylinder {
+    position: absolute; left: 50%; top: 46%;
+    width: 0; height: 0;
+    transform-style: preserve-3d;
+    transform:
+      scale(var(--world-scale))
+      translateZ(calc(-1 * var(--radius)))
+      rotateY(var(--angle));
+    will-change: transform;
+  }
+
+  .shelf {
+    position: absolute; transform-style: preserve-3d;
+    transform: translateY(var(--row-y));
+  }
+
+  .slot {
+    position: absolute;
+    left: calc(var(--book-w) / -2);
+    top: calc(var(--book-h) / -2);
+    width: var(--book-w); height: var(--book-h);
+    transform-style: preserve-3d;
+    transform: rotateY(calc(var(--i) * var(--step))) translateZ(var(--radius));
+  }
+
+  /* curved wooden plank segment under each slot */
+  .platform {
+    position: absolute; left: 50%; top: 100%;
+    width: calc(var(--book-w) + 26px); height: var(--platform-d);
+    margin-left: calc((var(--book-w) + 26px) / -2);
+    transform-origin: top center;
+    transform: rotateX(90deg);
+    background: linear-gradient(180deg, var(--wood) 0%, var(--wood-edge) 100%);
+    border-radius: 3px 3px 5px 5px;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.5) inset,
+      0 10px 16px -6px rgba(184,154,118,.55);
+  }
+  .platform::after { /* front lip catching light */
+    content: ""; position: absolute; left: 0; right: 0; bottom: -7px; height: 8px;
+    background: linear-gradient(180deg, var(--wood-edge), var(--wood-shadow));
+    border-radius: 0 0 4px 4px;
+    transform: rotateX(-90deg); transform-origin: top;
+  }
+  /* drop-target highlight */
+  .slot.drop-target .platform {
+    background: linear-gradient(180deg, #e7d6f2 0%, #d6bfe8 100%);
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.7) inset,
+      0 0 0 2px rgba(198,166,228,.6),
+      0 12px 22px -6px rgba(160,124,200,.6);
+  }
+
+  /* soft contact shadow on the plank */
+  .slot .contact {
+    position: absolute; left: 50%; top: calc(100% + 6px);
+    width: calc(var(--book-w) + 6px); height: 16px;
+    margin-left: calc((var(--book-w) + 6px) / -2);
+    transform: rotateX(90deg);
+    background: radial-gradient(60% 70% at 50% 50%, rgba(110,86,60,.32), transparent 75%);
+    filter: blur(2px); opacity: 0; transition: opacity .35s ease;
+  }
+  .slot.filled .contact { opacity: 1; }
+
+  /* ----------------------------------------------------------------------
+     Book
+  ---------------------------------------------------------------------- */
+  .book {
+    position: absolute; inset: 0;
+    border-radius: 3px 5px 5px 3px;
+    transform-style: preserve-3d;
+    transition: transform .5s cubic-bezier(.34,1.56,.64,1), opacity .3s ease;
+    cursor: grab;
+    background: var(--tint, #e7dcef);
+    box-shadow:
+      0 1px 2px rgba(0,0,0,.18),
+      0 14px 22px -10px rgba(80,60,90,.5);
+  }
+  .book:hover { transform: translateY(-7px) translateZ(10px); }
+  .book:focus-visible {
+    outline: none;
+    transform: translateY(-7px) translateZ(10px);
+    box-shadow: 0 0 0 3px rgba(198,166,228,.85), 0 16px 26px -10px rgba(80,60,90,.55);
+  }
+  .book:active { cursor: grabbing; }
+  .book.lifted { opacity: .18; }
+
+  .book .cover {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; border-radius: 3px 5px 5px 3px;
+    display: block;
+  }
+  /* gradient + color-treatment layers (guardrail) */
+  .book .treat {
+    position: absolute; inset: 0; border-radius: 3px 5px 5px 3px; pointer-events: none;
+  }
+  .book .treat::before {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(40,30,50,.34), transparent 46%);
+    border-radius: inherit;
+  }
+  .book .treat::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: var(--tint); mix-blend-mode: multiply; opacity: .14;
+  }
+  /* spine thickness on the left edge */
+  .book .spine {
+    position: absolute; left: 0; top: 0; height: 100%; width: 12px;
+    transform-origin: left center; transform: rotateY(-90deg);
+    background: linear-gradient(90deg, rgba(0,0,0,.28), var(--tint));
+    border-radius: 2px 0 0 2px;
+  }
+  /* fallback when cover image is missing/broken */
+  .book.no-cover .cover { display: none; }
+  .book .fallback {
+    position: absolute; inset: 0; display: none;
+    flex-direction: column; justify-content: space-between;
+    padding: 9px 8px; border-radius: 3px 5px 5px 3px;
+    background:
+      linear-gradient(150deg, rgba(255,255,255,.5), transparent 60%),
+      var(--tint);
+  }
+  .book.no-cover .fallback { display: flex; }
+  .book .fallback .t {
+    font-family: "Fraunces", serif; font-size: 11px; line-height: 1.2;
+    font-weight: 600; color: #443a52;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .book .fallback .a {
+    font-size: 8.5px; letter-spacing: .04em; color: rgba(68,58,82,.7);
+    text-transform: uppercase;
+  }
+
+  /* book info popover */
+  .popover {
+    position: fixed; z-index: 40; min-width: 188px; max-width: 240px;
+    padding: 14px 16px;
+    background: rgba(255,255,255,.86); backdrop-filter: blur(14px);
+    border: 1px solid rgba(198,166,228,.35); border-radius: 16px;
+    box-shadow: 0 20px 50px -18px rgba(120,90,150,.55), 0 2px 6px rgba(0,0,0,.06);
+    opacity: 0; transform: translateY(6px) scale(.97); pointer-events: none;
+    transition: opacity .2s ease, transform .25s cubic-bezier(.34,1.56,.64,1);
+  }
+  .popover.show { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  .popover h4 { margin: 0 0 2px; font-family: "Fraunces", serif; font-size: 15px; font-weight: 600; }
+  .popover p { margin: 0 0 12px; font-size: 12px; color: var(--ink-soft); }
+
+  /* ----------------------------------------------------------------------
+     Drag ghost (a lifted book following the cursor)
+  ---------------------------------------------------------------------- */
+  .ghost {
+    position: fixed; z-index: 60; width: var(--book-w); height: var(--book-h);
+    border-radius: 3px 5px 5px 3px; pointer-events: none;
+    transform: translate(-50%,-50%) rotate(-4deg) scale(1.16);
+    box-shadow: 0 30px 50px -14px rgba(70,50,90,.6); overflow: hidden;
+    transition: transform .12s ease;
+  }
+  .ghost img { width: 100%; height: 100%; object-fit: cover; }
+
+  /* ----------------------------------------------------------------------
+     Floating controls + panels
+  ---------------------------------------------------------------------- */
+  .controls { position: fixed; right: 24px; bottom: 24px; z-index: 35; display: flex; gap: 12px; }
+  .btn {
+    font-family: "Nunito Sans", sans-serif; font-weight: 600; font-size: 14px;
+    color: #4c4658; border: 1px solid rgba(160,124,200,.3); border-radius: 999px;
+    padding: 12px 18px; cursor: pointer;
+    background: linear-gradient(180deg, #ffffff, #f3ecf7);
+    box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 12px 26px -12px rgba(160,124,200,.6);
+    transition: transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s ease;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 18px 32px -12px rgba(160,124,200,.7); }
+  .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(198,166,228,.85); }
+  .btn:active { transform: translateY(0) scale(.98); }
+  .btn.primary { background: linear-gradient(180deg, #d9c2ef, #c6a6e4); color: #3c2f52; border-color: transparent; }
+  .btn.ghost-btn { background: rgba(255,255,255,.7); backdrop-filter: blur(8px); }
+
+  .edge-hint {
+    position: fixed; top: 50%; transform: translateY(-50%); z-index: 20;
+    width: 64px; height: 220px; pointer-events: none; opacity: 0; transition: opacity .4s ease;
+    display: flex; align-items: center; justify-content: center; font-size: 26px; color: var(--accent-deep);
+  }
+  .edge-hint.left { left: 0; background: linear-gradient(90deg, rgba(198,166,228,.25), transparent); }
+  .edge-hint.right { right: 0; background: linear-gradient(270deg, rgba(198,166,228,.25), transparent); }
+  .edge-hint.on { opacity: 1; }
+
+  /* search / add panel */
+  .scrim {
+    position: fixed; inset: 0; z-index: 50; background: rgba(76,70,88,.28);
+    backdrop-filter: blur(6px); opacity: 0; pointer-events: none; transition: opacity .3s ease;
+  }
+  .scrim.show { opacity: 1; pointer-events: auto; }
+  .panel {
+    position: fixed; z-index: 51; left: 50%; top: 50%;
+    width: min(560px, 92vw); max-height: 84vh; overflow: hidden;
+    transform: translate(-50%,-46%) scale(.96); opacity: 0; pointer-events: none;
+    background: linear-gradient(180deg, #fdfaf6, #f4eef7);
+    border: 1px solid rgba(198,166,228,.35); border-radius: 22px;
+    box-shadow: 0 40px 90px -30px rgba(110,80,140,.6);
+    transition: opacity .3s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
+    display: flex; flex-direction: column;
+  }
+  .panel.show { opacity: 1; transform: translate(-50%,-50%) scale(1); pointer-events: auto; }
+  .panel header { padding: 22px 24px 14px; }
+  .panel h3 { margin: 0; font-family: "Fraunces", serif; font-weight: 600; font-size: 22px; letter-spacing: -0.02em; }
+  .panel header p { margin: 4px 0 0; font-size: 13px; color: var(--ink-soft); }
+  .search-row { display: flex; gap: 10px; padding: 0 24px 16px; }
+  .search-row input {
+    flex: 1; font-family: inherit; font-size: 15px; color: var(--ink);
+    padding: 13px 16px; border-radius: 13px; border: 1px solid rgba(160,124,200,.3);
+    background: rgba(255,255,255,.8); outline: none;
+    transition: box-shadow .2s ease, border-color .2s ease;
+  }
+  .search-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(198,166,228,.35); }
+  .results { overflow-y: auto; padding: 4px 16px 18px; }
+  .result {
+    display: flex; gap: 14px; align-items: center; padding: 10px 12px; border-radius: 14px;
+    cursor: pointer; transition: background .2s ease, transform .2s ease;
+  }
+  .result:hover { background: rgba(198,166,228,.16); transform: translateX(2px); }
+  .result:focus-visible { outline: none; background: rgba(198,166,228,.22); }
+  .result img, .result .ph {
+    width: 44px; height: 66px; object-fit: cover; border-radius: 4px; flex: 0 0 auto;
+    box-shadow: 0 6px 12px -6px rgba(80,60,90,.5); background: #e7dcef;
+  }
+  .result .meta b { display: block; font-weight: 600; font-size: 14px; }
+  .result .meta span { font-size: 12px; color: var(--ink-soft); }
+  .panel .muted { padding: 18px 24px; font-size: 13px; color: var(--ink-soft); text-align: center; }
+  .panel .divider { text-align: center; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-soft); margin: 6px 0; }
+  .manual { padding: 4px 24px 22px; display: none; flex-direction: column; gap: 10px; }
+  .manual.show { display: flex; }
+  .manual input { font-family: inherit; font-size: 14px; padding: 11px 14px; border-radius: 12px; border: 1px solid rgba(160,124,200,.3); background: rgba(255,255,255,.8); outline: none; }
+  .manual input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(198,166,228,.3); }
+  .panel .foot { display: flex; justify-content: space-between; align-items: center; padding: 0 24px 20px; }
+  .linkish { background: none; border: none; color: var(--accent-deep); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 0; }
+  .linkish:hover { text-decoration: underline; }
+  .spinner { width: 22px; height: 22px; border: 3px solid rgba(198,166,228,.3); border-top-color: var(--accent-deep); border-radius: 50%; animation: spin .7s linear infinite; margin: 16px auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* save toast */
+  .toast {
+    position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%) translateY(10px);
+    z-index: 70; padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    color: #3c2f52; background: rgba(255,255,255,.9); backdrop-filter: blur(10px);
+    box-shadow: 0 12px 30px -12px rgba(120,90,150,.6); opacity: 0; pointer-events: none;
+    transition: opacity .3s ease, transform .3s ease;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: .001ms !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="plaque" id="plaque">Books I've Read<small id="plaque-sub">a quiet library</small></div>
+
+  <div class="edge-hint left" id="edge-left">‹</div>
+  <div class="edge-hint right" id="edge-right">›</div>
+
+  <div class="stage" id="stage">
+    <div class="cylinder" id="cylinder"></div>
+  </div>
+
+  <div class="popover" id="popover"></div>
+
+  <div class="controls">
+    <button class="btn ghost-btn" id="export-btn" title="Download books.json">Export</button>
+    <button class="btn primary" id="add-btn">＋ Add a book</button>
+  </div>
+
+  <div class="toast" id="toast">Saved</div>
+
+  <!-- Add / search panel -->
+  <div class="scrim" id="scrim"></div>
+  <div class="panel" id="panel" role="dialog" aria-modal="true" aria-label="Add a book">
+    <header>
+      <h3>Add a book</h3>
+      <p>Search the open library — covers and details fill in automatically.</p>
+    </header>
+    <div class="search-row">
+      <input id="search-input" type="text" placeholder="Title, e.g. The Night Circus…" autocomplete="off" />
+    </div>
+    <div class="results" id="results">
+      <p class="muted">Start typing to find a book.</p>
+    </div>
+    <div class="manual" id="manual">
+      <div class="divider">or add it by hand</div>
+      <input id="m-title" placeholder="Title" />
+      <input id="m-author" placeholder="Author" />
+      <input id="m-cover" placeholder="Cover image URL (optional)" />
+      <button class="btn primary" id="m-add" style="align-self:flex-start;">Add this book</button>
+    </div>
+    <div class="foot">
+      <button class="linkish" id="toggle-manual">Add manually instead</button>
+      <button class="btn ghost-btn" id="close-panel">Close</button>
+    </div>
+  </div>
+
+<script>
+/* =======================================================================
+   Pastel cylinder bookshelf
+   ======================================================================= */
+const $ = (s, r = document) => r.querySelector(s);
+
+const els = {
+  stage: $("#stage"), cylinder: $("#cylinder"),
+  edgeL: $("#edge-left"), edgeR: $("#edge-right"),
+  popover: $("#popover"), toast: $("#toast"),
+  plaque: $("#plaque"), plaqueSub: $("#plaque-sub"),
+  scrim: $("#scrim"), panel: $("#panel"),
+  search: $("#search-input"), results: $("#results"),
+  manual: $("#manual"),
+};
+
+const DEG = Math.PI / 180;
+let state = { config: { shelves: 5, slotsPerShelf: 18, title: "Books I've Read" }, books: [] };
+let SLOTS = 18, SHELVES = 5, STEP = 20;        // step in degrees
+let RADIUS = 430;                               // kept in sync with CSS var
+
+// rotation
+let angle = 0, vel = 0;
+let pointerInStage = false, mouseX = 0;
+
+/* ---------- geometry helpers ---------- */
+function readGeom() {
+  const cs = getComputedStyle(document.documentElement);
+  RADIUS = parseFloat(cs.getPropertyValue("--radius"));
+}
+function mod(n, m) { return ((n % m) + m) % m; }
+
+/* ---------- persistence ---------- */
+let saveTimer = null, hasServer = false;
+async function load() {
+  let data = null;
+  // try the dev-server endpoint first (local authoring), then the static file
+  try {
+    const r = await fetch("/api/books", { cache: "no-store" });
+    if (r.ok) { data = await r.json(); hasServer = true; }
+  } catch (_) {}
+  if (!data) {
+    try { const r = await fetch("data/books.json", { cache: "no-store" }); if (r.ok) data = await r.json(); }
+    catch (_) {}
+  }
+  if (!data) data = { config: state.config, books: [] };
+
+  // overlay a newer local working copy if present
+  try {
+    const local = JSON.parse(localStorage.getItem("bookshelf:data") || "null");
+    if (local && local._savedAt && (!data._savedAt || local._savedAt > data._savedAt)) data = local;
+  } catch (_) {}
+
+  state = Object.assign({ config: {}, books: [] }, data);
+  SHELVES = state.config.shelves || 5;
+  SLOTS = state.config.slotsPerShelf || 18;
+  STEP = 360 / SLOTS;
+  document.documentElement.style.setProperty("--step", STEP + "deg");
+  els.plaque.firstChild.textContent = state.config.title || "Books I've Read";
+  fitWorld();
+}
+
+function persist(showToastFlag = true) {
+  state._savedAt = Date.now();
+  try { localStorage.setItem("bookshelf:data", JSON.stringify(state)); } catch (_) {}
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    if (!hasServer) return;                 // static hosting: nothing to write to
+    try {
+      await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(state, null, 2) });
+      if (showToastFlag) toast("Saved to books.json");
+    } catch (_) { /* ignore — localStorage already holds it */ }
+  }, 500);
+}
+
+function toast(msg) {
+  els.toast.textContent = msg; els.toast.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => els.toast.classList.remove("show"), 1600);
+}
+
+/* ---------- rendering ---------- */
+function bookAt(shelf, slot) { return state.books.find(b => b.shelf === shelf && b.slot === slot); }
+function firstEmptySlot() {
+  for (let s = 0; s < SHELVES; s++)
+    for (let i = 0; i < SLOTS; i++)
+      if (!bookAt(s, i)) return { shelf: s, slot: i };
+  return { shelf: 0, slot: 0 };
+}
+
+function render() {
+  readGeom();
+  const cyl = els.cylinder;
+  cyl.innerHTML = "";
+  for (let s = 0; s < SHELVES; s++) {
+    const shelf = document.createElement("div");
+    shelf.className = "shelf";
+    shelf.style.setProperty("--row-y", ((s - (SHELVES - 1) / 2) * parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--row-h"))) + "px");
+    for (let i = 0; i < SLOTS; i++) {
+      const slot = document.createElement("div");
+      slot.className = "slot";
+      slot.style.setProperty("--i", i);
+      slot.dataset.shelf = s; slot.dataset.slot = i;
+
+      const plat = document.createElement("div"); plat.className = "platform"; slot.appendChild(plat);
+      const contact = document.createElement("div"); contact.className = "contact"; slot.appendChild(contact);
+
+      const b = bookAt(s, i);
+      if (b) { slot.classList.add("filled"); slot.appendChild(makeBook(b)); }
+      shelf.appendChild(slot);
+    }
+    cyl.appendChild(shelf);
+  }
+}
+
+function makeBook(b) {
+  const el = document.createElement("div");
+  el.className = "book"; el.tabIndex = 0; el.dataset.id = b.id;
+  el.style.setProperty("--tint", b.tint || "#e7dcef");
+  el.setAttribute("aria-label", `${b.title} by ${b.author || "unknown"}`);
+
+  const spine = document.createElement("div"); spine.className = "spine"; el.appendChild(spine);
+
+  if (b.coverUrl) {
+    const img = document.createElement("img");
+    img.className = "cover"; img.alt = ""; img.loading = "lazy"; img.src = b.coverUrl;
+    img.onerror = () => el.classList.add("no-cover");
+    el.appendChild(img);
+  } else { el.classList.add("no-cover"); }
+
+  const treat = document.createElement("div"); treat.className = "treat"; el.appendChild(treat);
+
+  const fb = document.createElement("div"); fb.className = "fallback";
+  fb.innerHTML = `<div class="t">${escapeHtml(b.title)}</div><div class="a">${escapeHtml(b.author || "")}</div>`;
+  el.appendChild(fb);
+  return el;
+}
+
+function escapeHtml(s) { return (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+/* ---------- fit the cylinder to the viewport height ---------- */
+function fitWorld() {
+  const rowH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--row-h"));
+  const totalH = SHELVES * rowH + 120;
+  const scale = Math.min(1, (window.innerHeight - 120) / totalH);
+  document.documentElement.style.setProperty("--world-scale", scale.toFixed(3));
+}
+
+/* ---------- rotation loop ---------- */
+function tick() {
+  if (Math.abs(vel) > 0.001) {
+    angle += vel;
+    vel *= 0.92;                       // spring-like easing toward rest
+    document.documentElement.style.setProperty("--angle", angle.toFixed(3) + "deg");
+  }
+  requestAnimationFrame(tick);
+}
+
+function updateEdgeDrive() {
+  if (!pointerInStage || dragging) { setEdge(0); return; }
+  const w = window.innerWidth, edge = w * 0.16;
+  let drive = 0;
+  if (mouseX < edge) drive = (edge - mouseX) / edge;            // 0..1 near left
+  else if (mouseX > w - edge) drive = -(mouseX - (w - edge)) / edge; // 0..-1 near right
+  if (drive !== 0) vel += drive * 0.06;                         // accelerate toward edge
+  setEdge(drive);
+}
+function setEdge(drive) {
+  els.edgeL.classList.toggle("on", drive > 0.05);
+  els.edgeR.classList.toggle("on", drive < -0.05);
+}
+
+/* ---------- pointer: rotate by dragging empty space, drive at edges ---------- */
+let spaceDrag = null;
+els.stage.addEventListener("pointermove", e => {
+  mouseX = e.clientX; pointerInStage = true;
+  if (spaceDrag) {
+    const dx = e.clientX - spaceDrag.x;
+    angle = spaceDrag.a + dx * 0.25;
+    document.documentElement.style.setProperty("--angle", angle.toFixed(3) + "deg");
+  }
+});
+els.stage.addEventListener("pointerleave", () => { pointerInStage = false; setEdge(0); });
+els.stage.addEventListener("pointerdown", e => {
+  if (e.target.closest(".book")) return;       // handled by book drag
+  hidePopover();
+  spaceDrag = { x: e.clientX, a: angle };
+  els.stage.classList.add("dragging");
+  els.stage.setPointerCapture(e.pointerId);
+});
+els.stage.addEventListener("pointerup", e => {
+  spaceDrag = null; els.stage.classList.remove("dragging");
+  try { els.stage.releasePointerCapture(e.pointerId); } catch (_) {}
+});
+setInterval(updateEdgeDrive, 30);
+
+/* ---------- book drag (snap to slot) + click ---------- */
+let dragging = null, ghost = null, downInfo = null, lastTarget = null;
+
+els.cylinder.addEventListener("pointerdown", e => {
+  const bookEl = e.target.closest(".book");
+  if (!bookEl) return;
+  e.stopPropagation();
+  const id = bookEl.dataset.id;
+  const book = state.books.find(b => b.id === id);
+  if (!book) return;
+  downInfo = { id, x: e.clientX, y: e.clientY, bookEl, book, moved: false, pointerId: e.pointerId };
+  window.addEventListener("pointermove", onBookMove);
+  window.addEventListener("pointerup", onBookUp, { once: true });
+});
+
+function onBookMove(e) {
+  if (!downInfo) return;
+  const dx = e.clientX - downInfo.x, dy = e.clientY - downInfo.y;
+  if (!downInfo.moved && Math.hypot(dx, dy) < 7) return;     // distinguish click from drag
+  if (!downInfo.moved) startDrag(e);
+  downInfo.moved = true;
+  // move ghost
+  ghost.style.left = e.clientX + "px"; ghost.style.top = e.clientY + "px";
+  // resolve + highlight target slot
+  const t = resolveTarget(e.clientX, e.clientY);
+  if (lastTarget) lastTarget.el.classList.remove("drop-target");
+  if (t) { t.el.classList.add("drop-target"); }
+  lastTarget = t;
+}
+
+function startDrag(e) {
+  dragging = downInfo;
+  downInfo.bookEl.classList.add("lifted");
+  ghost = document.createElement("div");
+  ghost.className = "ghost";
+  ghost.style.left = e.clientX + "px"; ghost.style.top = e.clientY + "px";
+  const b = downInfo.book;
+  if (b.coverUrl) { const img = new Image(); img.src = b.coverUrl; ghost.appendChild(img); }
+  else { ghost.style.background = b.tint || "#e7dcef"; }
+  document.body.appendChild(ghost);
+  setEdge(0);
+}
+
+function onBookUp(e) {
+  window.removeEventListener("pointermove", onBookMove);
+  if (!downInfo) return;
+  if (!downInfo.moved) {                        // it was a click → show info popover
+    showPopover(downInfo.book, downInfo.bookEl);
+    downInfo = null; return;
+  }
+  // it was a drag → drop
+  const t = resolveTarget(e.clientX, e.clientY);
+  if (t) {
+    const moving = downInfo.book;
+    const resident = bookAt(t.shelf, t.slot);
+    if (resident && resident.id !== moving.id) { resident.shelf = moving.shelf; resident.slot = moving.slot; }
+    moving.shelf = t.shelf; moving.slot = t.slot;
+    render(); persist();
+  }
+  cleanupDrag();
+}
+
+function cleanupDrag() {
+  if (lastTarget) lastTarget.el.classList.remove("drop-target");
+  if (ghost) ghost.remove();
+  const lifted = els.cylinder.querySelector(".book.lifted");
+  if (lifted) lifted.classList.remove("lifted");
+  ghost = null; dragging = null; downInfo = null; lastTarget = null;
+}
+
+/* map a screen point to the nearest (shelf, slot) */
+function resolveTarget(px, py) {
+  // shelf: nearest row band on screen
+  const rect = els.stage.getBoundingClientRect();
+  const cs = getComputedStyle(document.documentElement);
+  const rowH = parseFloat(cs.getPropertyValue("--row-h")) * parseFloat(cs.getPropertyValue("--world-scale"));
+  const centerY = rect.top + rect.height * 0.46;
+  let shelf = Math.round((py - centerY) / rowH + (SHELVES - 1) / 2);
+  shelf = Math.max(0, Math.min(SHELVES - 1, shelf));
+
+  // slot: front slot from angle, then offset by horizontal distance
+  const frontIndex = mod(Math.round(-angle / STEP), SLOTS);
+  const scale = parseFloat(cs.getPropertyValue("--world-scale"));
+  const slotPx = RADIUS * Math.sin(STEP * DEG) * scale;       // px between adjacent front slots
+  const centerX = rect.left + rect.width / 2;
+  const offset = Math.round((px - centerX) / slotPx);
+  // only allow targets within the visible front arc (±5 slots)
+  if (Math.abs(offset) > 5) return null;
+  const slot = mod(frontIndex + offset, SLOTS);
+  const el = els.cylinder.querySelector(`.slot[data-shelf="${shelf}"][data-slot="${slot}"]`);
+  if (!el) return null;
+  return { shelf, slot, el };
+}
+
+/* ---------- popover (info + remove) ---------- */
+function showPopover(book, anchorEl) {
+  const r = anchorEl.getBoundingClientRect();
+  els.popover.innerHTML = `
+    <h4>${escapeHtml(book.title)}</h4>
+    <p>${escapeHtml(book.author || "Unknown author")}</p>
+    <button class="btn ghost-btn" data-act="remove" style="width:100%;justify-content:center;">Remove from shelf</button>`;
+  els.popover.style.left = Math.min(window.innerWidth - 250, Math.max(12, r.left)) + "px";
+  els.popover.style.top = Math.max(12, r.top - 8) + "px";
+  els.popover.classList.add("show");
+  els.popover.querySelector('[data-act="remove"]').onclick = () => {
+    state.books = state.books.filter(b => b.id !== book.id);
+    hidePopover(); render(); persist(); toast("Removed");
+  };
+}
+function hidePopover() { els.popover.classList.remove("show"); }
+document.addEventListener("pointerdown", e => {
+  if (!e.target.closest(".popover") && !e.target.closest(".book")) hidePopover();
+});
+
+/* keyboard accessibility: focus a book, move with arrows */
+els.cylinder.addEventListener("keydown", e => {
+  const bookEl = e.target.closest(".book"); if (!bookEl) return;
+  const book = state.books.find(b => b.id === bookEl.dataset.id); if (!book) return;
+  let moved = true;
+  if (e.key === "ArrowLeft") book.slot = mod(book.slot - 1, SLOTS);
+  else if (e.key === "ArrowRight") book.slot = mod(book.slot + 1, SLOTS);
+  else if (e.key === "ArrowUp") book.shelf = Math.max(0, book.shelf - 1);
+  else if (e.key === "ArrowDown") book.shelf = Math.min(SHELVES - 1, book.shelf + 1);
+  else moved = false;
+  if (moved) {
+    e.preventDefault();
+    const other = state.books.find(b => b !== book && b.shelf === book.shelf && b.slot === book.slot);
+    if (other) { /* swap back to avoid stacking */ if (e.key === "ArrowLeft") other.slot = mod(other.slot + 1, SLOTS); else if (e.key === "ArrowRight") other.slot = mod(other.slot - 1, SLOTS); else other.shelf = book.shelf === 0 ? book.shelf + 1 : book.shelf - 1; }
+    render(); persist(false);
+    requestAnimationFrame(() => { const again = els.cylinder.querySelector(`.book[data-id="${book.id}"]`); if (again) again.focus(); });
+  }
+});
+
+/* ---------- Open Library search ---------- */
+let searchTimer = null;
+function tintFor(seed) {
+  const tints = ["#efe2c9","#d8e7d2","#e8d4d4","#e3dcef","#efd9c9","#d6e3e0","#e7dcef","#dcd7ec","#d6e7dd"];
+  let h = 0; for (const c of (seed || "x")) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return tints[h % tints.length];
+}
+els.search.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const q = els.search.value.trim();
+  if (q.length < 2) { els.results.innerHTML = '<p class="muted">Start typing to find a book.</p>'; return; }
+  els.results.innerHTML = '<div class="spinner"></div>';
+  searchTimer = setTimeout(() => runSearch(q), 350);
+});
+
+async function runSearch(q) {
+  try {
+    const r = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=12&fields=title,author_name,cover_i,key`);
+    const data = await r.json();
+    const docs = (data.docs || []).filter(d => d.title);
+    if (!docs.length) { els.results.innerHTML = '<p class="muted">No matches — try adding it manually.</p>'; return; }
+    els.results.innerHTML = "";
+    for (const d of docs) {
+      const cover = d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null;
+      const row = document.createElement("div");
+      row.className = "result"; row.tabIndex = 0; row.setAttribute("role", "button");
+      row.innerHTML =
+        (cover ? `<img src="${cover}" alt="" />` : `<div class="ph"></div>`) +
+        `<div class="meta"><b>${escapeHtml(d.title)}</b><span>${escapeHtml((d.author_name || [])[0] || "Unknown author")}</span></div>`;
+      const add = () => addBook({
+        title: d.title, author: (d.author_name || [])[0] || "",
+        coverUrl: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg` : "",
+      });
+      row.onclick = add;
+      row.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); add(); } };
+      els.results.appendChild(row);
+    }
+  } catch (_) {
+    els.results.innerHTML = '<p class="muted">Could not reach the library. Add it manually below.</p>';
+  }
+}
+
+function addBook({ title, author, coverUrl }) {
+  const { shelf, slot } = firstEmptySlot();
+  const book = { id: "b-" + Date.now() + "-" + Math.floor(Math.random() * 999), title, author: author || "", coverUrl: coverUrl || "", tint: tintFor(title), shelf, slot };
+  state.books.push(book);
+  render(); persist(); closePanel(); toast("Added to your shelf");
+}
+
+/* ---------- panel open/close + manual add ---------- */
+function openPanel() {
+  els.scrim.classList.add("show"); els.panel.classList.add("show");
+  els.search.value = ""; els.results.innerHTML = '<p class="muted">Start typing to find a book.</p>';
+  setTimeout(() => els.search.focus(), 60);
+}
+function closePanel() { els.scrim.classList.remove("show"); els.panel.classList.remove("show"); els.manual.classList.remove("show"); }
+$("#add-btn").onclick = openPanel;
+$("#close-panel").onclick = closePanel;
+els.scrim.onclick = closePanel;
+$("#toggle-manual").onclick = () => els.manual.classList.toggle("show");
+$("#m-add").onclick = () => {
+  const t = $("#m-title").value.trim(); if (!t) { $("#m-title").focus(); return; }
+  addBook({ title: t, author: $("#m-author").value.trim(), coverUrl: $("#m-cover").value.trim() });
+  $("#m-title").value = $("#m-author").value = $("#m-cover").value = "";
+};
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closePanel(); hidePopover(); } });
+
+/* ---------- export ---------- */
+$("#export-btn").onclick = () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "books.json"; a.click();
+  URL.revokeObjectURL(a.href); toast("Downloaded books.json");
+};
+
+/* ---------- boot ---------- */
+window.addEventListener("resize", fitWorld);
+(async function boot() {
+  await load();
+  render();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

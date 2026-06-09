@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "config": {
+    "shelves": 5,
+    "slotsPerShelf": 18,
+    "title": "Books I've Read"
+  },
+  "books": [
+    {
+      "id": "seed-gatsby",
+      "title": "The Great Gatsby",
+      "author": "F. Scott Fitzgerald",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780743273565-L.jpg",
+      "tint": "#efe2c9",
+      "shelf": 0,
+      "slot": 17
+    },
+    {
+      "id": "seed-mockingbird",
+      "title": "To Kill a Mockingbird",
+      "author": "Harper Lee",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780061120084-L.jpg",
+      "tint": "#d8e7d2",
+      "shelf": 0,
+      "slot": 0
+    },
+    {
+      "id": "seed-1984",
+      "title": "1984",
+      "author": "George Orwell",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780451524935-L.jpg",
+      "tint": "#e8d4d4",
+      "shelf": 0,
+      "slot": 1
+    },
+    {
+      "id": "seed-pride",
+      "title": "Pride and Prejudice",
+      "author": "Jane Austen",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780141439518-L.jpg",
+      "tint": "#e3dcef",
+      "shelf": 0,
+      "slot": 2
+    },
+    {
+      "id": "seed-catcher",
+      "title": "The Catcher in the Rye",
+      "author": "J. D. Salinger",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780316769488-L.jpg",
+      "tint": "#efd9c9",
+      "shelf": 1,
+      "slot": 17
+    },
+    {
+      "id": "seed-lotr",
+      "title": "The Fellowship of the Ring",
+      "author": "J. R. R. Tolkien",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780618640157-L.jpg",
+      "tint": "#d6e3e0",
+      "shelf": 1,
+      "slot": 0
+    },
+    {
+      "id": "seed-brave",
+      "title": "Brave New World",
+      "author": "Aldous Huxley",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780060850524-L.jpg",
+      "tint": "#e7dcef",
+      "shelf": 1,
+      "slot": 1
+    },
+    {
+      "id": "seed-kite",
+      "title": "The Kite Runner",
+      "author": "Khaled Hosseini",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9781594631931-L.jpg",
+      "tint": "#efe0cf",
+      "shelf": 1,
+      "slot": 2
+    },
+    {
+      "id": "seed-hunger",
+      "title": "The Hunger Games",
+      "author": "Suzanne Collins",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780439023481-L.jpg",
+      "tint": "#d9e6e4",
+      "shelf": 2,
+      "slot": 17
+    },
+    {
+      "id": "seed-davinci",
+      "title": "The Da Vinci Code",
+      "author": "Dan Brown",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780307474278-L.jpg",
+      "tint": "#e9d6d2",
+      "shelf": 2,
+      "slot": 0
+    },
+    {
+      "id": "seed-lovely",
+      "title": "The Lovely Bones",
+      "author": "Alice Sebold",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780316168816-L.jpg",
+      "tint": "#dfd9ef",
+      "shelf": 2,
+      "slot": 1
+    },
+    {
+      "id": "seed-hp",
+      "title": "Harry Potter and the Sorcerer's Stone",
+      "author": "J. K. Rowling",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780590353427-L.jpg",
+      "tint": "#efe6c9",
+      "shelf": 2,
+      "slot": 2
+    },
+    {
+      "id": "seed-road",
+      "title": "The Road",
+      "author": "Cormac McCarthy",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780307387899-L.jpg",
+      "tint": "#dde2e6",
+      "shelf": 3,
+      "slot": 17
+    },
+    {
+      "id": "seed-life",
+      "title": "Life of Pi",
+      "author": "Yann Martel",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780156027328-L.jpg",
+      "tint": "#d6e7dd",
+      "shelf": 3,
+      "slot": 0
+    },
+    {
+      "id": "seed-alchemist",
+      "title": "The Alchemist",
+      "author": "Paulo Coelho",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780061122415-L.jpg",
+      "tint": "#efe1cb",
+      "shelf": 3,
+      "slot": 1
+    },
+    {
+      "id": "seed-night",
+      "title": "The Night Circus",
+      "author": "Erin Morgenstern",
+      "coverUrl": "https://covers.openlibrary.org/b/isbn/9780307744432-L.jpg",
+      "tint": "#dcd7ec",
+      "shelf": 3,
+      "slot": 2
+    }
+  ]
+}
