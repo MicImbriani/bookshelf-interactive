@@ -414,6 +414,7 @@
     margin: 0 24px 14px;
     border: 1px solid rgba(160,124,200,.35); border-radius: 14px; overflow: hidden;
   }
+  .ai-code-block.flagged { border-color: rgba(214,120,120,.6); }
   .ai-code-label {
     padding: 8px 14px; font-size: 11px; font-weight: 700; letter-spacing: .1em;
     text-transform: uppercase; color: rgba(255,255,255,.55);
@@ -421,11 +422,31 @@
     display: flex; align-items: center; gap: 8px;
   }
   .ai-code-label::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #e4a0c0; flex-shrink: 0; }
+  .ai-code-block.flagged .ai-code-label { color: #f0b4b4; }
+  .ai-code-block.flagged .ai-code-label::before { background: #e06b6b; }
   .ai-code-block pre {
     margin: 0; padding: 14px; background: #1e1a2e; color: #d4c9e8;
     font-family: "SFMono-Regular", Consolas, monospace; font-size: 12px; line-height: 1.6;
     max-height: 220px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
   }
+  .ai-warnings {
+    background: #2a1d28; border-top: 1px solid rgba(224,107,107,.35);
+    padding: 11px 14px; display: flex; flex-direction: column; gap: 7px;
+  }
+  .ai-warnings .wtitle {
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    color: #f0b4b4; display: flex; align-items: center; gap: 7px;
+  }
+  .ai-warn {
+    font-size: 12px; line-height: 1.45; color: #e8cdd0;
+    padding-left: 18px; position: relative;
+  }
+  .ai-warn::before { content: "⚠"; position: absolute; left: 0; top: 0; color: #e06b6b; }
+  .ai-warn code {
+    font-family: "SFMono-Regular", Consolas, monospace; font-size: 11.5px;
+    background: rgba(224,107,107,.18); color: #ffd9d9; padding: 1px 5px; border-radius: 4px;
+  }
+  .btn.ai-gen.danger { background: linear-gradient(180deg, #e88f8f, #d66b6b); color: #3a1414; }
 </style>
 </head>
 <body>
@@ -491,8 +512,11 @@
     </div>
     <div class="ai-status-row" id="ai-status-row"><div class="ai-pulse"></div><span id="ai-status-txt"></span></div>
     <div class="ai-code-block" id="ai-code-block" hidden>
-      <div class="ai-code-label">Review before applying</div>
+      <div class="ai-code-label" id="ai-code-label">Review before applying</div>
       <pre id="ai-code-pre"></pre>
+      <div class="ai-warnings" id="ai-warnings" hidden>
+        <div class="wtitle">⚠ Flagged as risky</div>
+      </div>
     </div>
     <div class="ai-foot">
       <div style="display:flex;gap:8px;">
@@ -987,32 +1011,36 @@ const bookshelfAPI = {
   render,
 };
 
-/* --- static safety check --- */
-const BLOCKED_PATTERNS = [
-  [/\bfetch\b/,              "fetch (network access)"],
-  [/\bXMLHttpRequest\b/,     "XMLHttpRequest"],
-  [/\bWebSocket\b/,          "WebSocket"],
-  [/navigator\.sendBeacon/,  "navigator.sendBeacon"],
-  [/\blocalStorage\b/,       "localStorage"],
-  [/\bsessionStorage\b/,     "sessionStorage"],
-  [/\bindexedDB\b/,          "indexedDB"],
-  [/document\.cookie/,       "document.cookie"],
-  [/\beval\b/,               "eval"],
-  [/new\s+Function/,         "new Function"],
-  [/import\s*\(/,            "dynamic import()"],
-  [/require\s*\(/,           "require()"],
-  [/window\.location/,       "window.location"],
-  [/document\.location/,     "document.location"],
-  [/window\.open/,           "window.open"],
-  [/document\.write/,        "document.write"],
+/* --- static safety scan ---
+   Each pattern is flagged (not blocked) with a plain-language reason so the
+   user can read the code and decide whether to run it anyway. --- */
+const RISK_PATTERNS = [
+  [/\bfetch\b/,             "fetch", "Makes a network request — could send your data (or page contents) to another server."],
+  [/\bXMLHttpRequest\b/,    "XMLHttpRequest", "Makes a network request — could exfiltrate data to a remote server."],
+  [/\bWebSocket\b/,         "WebSocket", "Opens a live connection to a server — could stream data out continuously."],
+  [/navigator\.sendBeacon/, "navigator.sendBeacon", "Sends data to a server in the background, even after you navigate away."],
+  [/\blocalStorage\b/,      "localStorage", "Reads or writes browser storage — could read your saved Gemini API key or books data."],
+  [/\bsessionStorage\b/,    "sessionStorage", "Reads or writes session storage — could access other in-page data."],
+  [/\bindexedDB\b/,         "indexedDB", "Accesses the browser database — could read or tamper with stored data."],
+  [/document\.cookie/,      "document.cookie", "Reads or writes cookies — could steal session tokens or set tracking cookies."],
+  [/\beval\b/,              "eval", "Runs arbitrary code from a string — hides what the code actually does."],
+  [/new\s+Function/,        "new Function", "Builds and runs code from a string — hides what the code actually does."],
+  [/import\s*\(/,           "dynamic import()", "Loads external code at runtime — could pull in anything from the web."],
+  [/require\s*\(/,          "require()", "Loads external modules — could pull in untrusted code."],
+  [/window\.location/,      "window.location", "Can redirect your browser to another site."],
+  [/document\.location/,    "document.location", "Can redirect your browser to another site."],
+  [/window\.open/,          "window.open", "Opens a new window or tab — could launch a phishing or ad page."],
+  [/document\.write/,       "document.write", "Rewrites the whole page — could replace it with arbitrary content."],
 ];
 
-function checkCode(code) {
-  if (code.length > 8000) return "Code exceeds 8 000 character limit.";
-  for (const [re, label] of BLOCKED_PATTERNS) {
-    if (re.test(code)) return `Blocked: ${label}`;
+// Returns an array of { label, why } warnings (empty array = looks safe).
+function scanCode(code) {
+  const warnings = [];
+  if (code.length > 8000) warnings.push({ label: "very long", why: "Code is over 8 000 characters — unusually large for a styling change; review carefully." });
+  for (const [re, label, why] of RISK_PATTERNS) {
+    if (re.test(code)) warnings.push({ label, why });
   }
-  return null;
+  return warnings;
 }
 
 /* --- state snapshot for revert --- */
@@ -1042,14 +1070,43 @@ function restoreSnapshot(snap) {
 /* --- apply / reset / revert buttons --- */
 const aiApplyBtn  = document.getElementById("ai-apply");
 const aiRevertBtn = document.getElementById("ai-revert");
+const aiCodeBlock = document.getElementById("ai-code-block");
+const aiWarnEl    = document.getElementById("ai-warnings");
 let pendingCode = null;
+
+// Render the flagged-risk list (or hide it when the code looks clean).
+function renderWarnings(warnings) {
+  aiWarnEl.querySelectorAll(".ai-warn").forEach(n => n.remove());
+  if (!warnings.length) {
+    aiWarnEl.hidden = true;
+    aiCodeBlock.classList.remove("flagged");
+    aiApplyBtn.textContent = "Apply ✨";
+    aiApplyBtn.classList.remove("danger");
+    return;
+  }
+  for (const w of warnings) {
+    const row = document.createElement("div");
+    row.className = "ai-warn";
+    row.innerHTML = `<code>${escapeHtml(w.label)}</code> — ${escapeHtml(w.why)}`;
+    aiWarnEl.appendChild(row);
+  }
+  aiWarnEl.hidden = false;
+  aiCodeBlock.classList.add("flagged");
+  aiApplyBtn.textContent = "Apply anyway";
+  aiApplyBtn.classList.add("danger");
+}
+
+function clearCodePreview() {
+  aiCodeBlock.hidden = true;
+  aiApplyBtn.disabled = true;
+  renderWarnings([]);
+  pendingCode = null;
+}
 
 document.getElementById("ai-reset").onclick = () => {
   resetToDefaults();
   setAiStatus("");
-  document.getElementById("ai-code-block").hidden = true;
-  aiApplyBtn.disabled = true;
-  pendingCode = null;
+  clearCodePreview();
   toast("Reset to defaults");
 };
 
@@ -1121,9 +1178,7 @@ aiGenBtn.onclick = async () => {
   localStorage.setItem("ai:geminiKey", key);
 
   aiGenBtn.disabled = true;
-  aiApplyBtn.disabled = true;
-  pendingCode = null;
-  document.getElementById("ai-code-block").hidden = true;
+  clearCodePreview();
   setAiStatus("Generating…", true);
 
   let accumulated = "";
@@ -1179,14 +1234,18 @@ aiGenBtn.onclick = async () => {
     const result = JSON.parse(cleaned);
     if (typeof result.code !== "string") throw new Error("No code field in response");
 
-    const blockReason = checkCode(result.code);
-    if (blockReason) { setAiStatus(blockReason); return; }
-
     pendingCode = result.code;
     document.getElementById("ai-code-pre").textContent = result.code;
-    document.getElementById("ai-code-block").hidden = false;
-    setAiStatus(result.summary || "Review the code above, then click Apply.");
+    aiCodeBlock.hidden = false;
     aiApplyBtn.disabled = false;
+
+    const warnings = scanCode(result.code);
+    renderWarnings(warnings);
+    if (warnings.length) {
+      setAiStatus("⚠ Flagged as risky — read the warnings below before applying.");
+    } else {
+      setAiStatus(result.summary || "Review the code above, then click Apply.");
+    }
   } catch (e) {
     setAiStatus("Couldn't parse AI response. Please try again.");
     console.error("AI parse error:", e, accumulated);
