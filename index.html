@@ -358,6 +358,48 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition-duration: .001ms !important; }
   }
+
+  /* ----------------------------------------------------------------------
+     AI theme panel
+  ---------------------------------------------------------------------- */
+  .ai-panel {
+    position: fixed; z-index: 51; left: 50%; top: 50%;
+    width: min(520px, 92vw);
+    transform: translate(-50%,-46%) scale(.96); opacity: 0; pointer-events: none;
+    background: linear-gradient(180deg, #fdfaf6, #f4eef7);
+    border: 1px solid rgba(198,166,228,.35); border-radius: 22px;
+    box-shadow: 0 40px 90px -30px rgba(110,80,140,.6);
+    transition: opacity .3s ease, transform .35s cubic-bezier(.34,1.56,.64,1);
+    display: flex; flex-direction: column;
+  }
+  .ai-panel.show { opacity: 1; transform: translate(-50%,-50%) scale(1); pointer-events: auto; }
+  .ai-panel header { padding: 22px 24px 14px; }
+  .ai-panel h3 { margin: 0; font-family: "Fraunces", serif; font-weight: 600; font-size: 22px; letter-spacing: -0.02em; }
+  .ai-panel header p { margin: 4px 0 0; font-size: 13px; color: var(--ink-soft); }
+
+  .ai-field { padding: 0 24px 14px; display: flex; flex-direction: column; gap: 6px; }
+  .ai-field label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+  .ai-field input, .ai-field textarea {
+    font-family: inherit; font-size: 14px; color: var(--ink);
+    padding: 12px 14px; border-radius: 13px; border: 1px solid rgba(160,124,200,.3);
+    background: rgba(255,255,255,.8); outline: none;
+    transition: box-shadow .2s ease, border-color .2s ease;
+  }
+  .ai-field input:focus, .ai-field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(198,166,228,.35); }
+  .ai-field textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
+  .ai-field .hint { font-size: 11.5px; color: var(--ink-soft); line-height: 1.5; }
+
+  .ai-status-row {
+    padding: 0 24px 12px; min-height: 28px; display: flex; align-items: center; gap: 9px;
+    font-size: 13px; color: var(--ink-soft);
+  }
+  .ai-pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; display: none; }
+  .ai-status-row.streaming .ai-pulse { display: block; animation: ai-pulse .9s ease-in-out infinite; }
+  @keyframes ai-pulse { 0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.5);opacity:1} }
+
+  .ai-foot { display: flex; justify-content: space-between; align-items: center; padding: 0 24px 20px; gap: 10px; flex-wrap: wrap; }
+  .btn.ai-gen { background: linear-gradient(180deg, #e0cef7, #c6a6e4 90%); color: #3c2f52; border-color: transparent; }
+  .btn.ai-gen:disabled { opacity: .5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 </style>
 </head>
 <body>
@@ -374,6 +416,7 @@
 
   <div class="controls">
     <button class="btn ghost-btn" id="export-btn" title="Download books.json">Export</button>
+    <button class="btn ghost-btn" id="ai-btn" title="Customize with AI">✨ AI Theme</button>
     <button class="btn primary" id="add-btn">＋ Add a book</button>
   </div>
 
@@ -402,6 +445,31 @@
     <div class="foot">
       <button class="linkish" id="toggle-manual">Add manually instead</button>
       <button class="btn ghost-btn" id="close-panel">Close</button>
+    </div>
+  </div>
+
+  <!-- AI customization panel -->
+  <div class="ai-panel" id="ai-panel" role="dialog" aria-modal="true" aria-label="Customize with AI">
+    <header>
+      <h3>✨ Customize with AI</h3>
+      <p>Describe any vibe — Claude rewrites the color palette live.</p>
+    </header>
+    <div class="ai-field">
+      <label for="ai-key">Anthropic API Key</label>
+      <input id="ai-key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+      <span class="hint">Stored in your browser only — sent directly to api.anthropic.com, never via this server.</span>
+    </div>
+    <div class="ai-field">
+      <label for="ai-prompt">Describe the aesthetic</label>
+      <textarea id="ai-prompt" placeholder="e.g. midnight library with deep navy and gold… warm autumn study with amber and rust… cool ocean breeze with seafoam and slate…"></textarea>
+    </div>
+    <div class="ai-status-row" id="ai-status-row"><div class="ai-pulse"></div><span id="ai-status-txt"></span></div>
+    <div class="ai-foot">
+      <button class="btn ghost-btn" id="ai-reset">Reset to defaults</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn ghost-btn" id="ai-close">Close</button>
+        <button class="btn ai-gen" id="ai-generate">Generate ✨</button>
+      </div>
     </div>
   </div>
 
@@ -798,7 +866,7 @@ $("#m-add").onclick = () => {
   addBook({ title: t, author: $("#m-author").value.trim(), coverUrl: $("#m-cover").value.trim() });
   $("#m-title").value = $("#m-author").value = $("#m-cover").value = "";
 };
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closePanel(); hidePopover(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closePanel(); closeAiPanel(); hidePopover(); } });
 
 /* ---------- export ---------- */
 $("#export-btn").onclick = () => {
@@ -806,6 +874,174 @@ $("#export-btn").onclick = () => {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "books.json"; a.click();
   URL.revokeObjectURL(a.href); toast("Downloaded books.json");
+};
+
+/* ---------- AI theme customization ---------- */
+const DEFAULT_TOKENS = {
+  "--bg-lavender": "#efe7f6",
+  "--bg-mint":     "#e6f1ea",
+  "--bg-blush":    "#fbeef0",
+  "--bg-cream":    "#f7f1ea",
+  "--wood":        "#ecddca",
+  "--wood-edge":   "#dcc6ab",
+  "--wood-shadow": "#b89a76",
+  "--ink":         "#4c4658",
+  "--ink-soft":    "#837b92",
+  "--accent":      "#c6a6e4",
+  "--accent-deep": "#a07cc8",
+  "--mint-deep":   "#8fc4a8",
+};
+
+const aiPanelEl  = document.getElementById("ai-panel");
+const aiKeyEl    = document.getElementById("ai-key");
+const aiPromptEl = document.getElementById("ai-prompt");
+const aiStatusRow= document.getElementById("ai-status-row");
+const aiStatusTxt= document.getElementById("ai-status-txt");
+const aiGenBtn   = document.getElementById("ai-generate");
+
+aiKeyEl.value = localStorage.getItem("ai:apiKey") || "";
+
+function openAiPanel() {
+  els.scrim.classList.add("show");
+  aiPanelEl.classList.add("show");
+  setTimeout(() => (aiKeyEl.value ? aiPromptEl.focus() : aiKeyEl.focus()), 60);
+}
+function closeAiPanel() {
+  els.scrim.classList.remove("show");
+  aiPanelEl.classList.remove("show");
+}
+
+// Let scrim close both panels
+els.scrim.onclick = () => { closePanel(); closeAiPanel(); };
+
+document.getElementById("ai-btn").onclick   = openAiPanel;
+document.getElementById("ai-close").onclick = closeAiPanel;
+document.getElementById("ai-reset").onclick = () => {
+  resetToDefaults();
+  setAiStatus("");
+  toast("Reset to defaults");
+};
+
+function setAiStatus(msg, streaming = false) {
+  aiStatusTxt.textContent = msg;
+  aiStatusRow.classList.toggle("streaming", streaming);
+}
+
+function applyTokens(tokens) {
+  const root = document.documentElement;
+  for (const [k, v] of Object.entries(tokens)) root.style.setProperty(k, v);
+}
+function resetToDefaults() {
+  const root = document.documentElement;
+  for (const k of Object.keys(DEFAULT_TOKENS)) root.style.removeProperty(k);
+}
+
+aiGenBtn.onclick = async () => {
+  const key = aiKeyEl.value.trim();
+  if (!key) { aiKeyEl.focus(); setAiStatus("Please enter your Anthropic API key first."); return; }
+  const prompt = aiPromptEl.value.trim();
+  if (!prompt) { aiPromptEl.focus(); setAiStatus("Describe the aesthetic you want."); return; }
+  localStorage.setItem("ai:apiKey", key);
+
+  aiGenBtn.disabled = true;
+  setAiStatus("Thinking…", true);
+
+  const SYSTEM = `You are a UI theming assistant for a soft pastel bookshelf webapp using CSS custom properties.
+Respond with ONLY a valid JSON object — no explanation, no markdown, no code fences.
+
+JSON format (exactly two keys):
+{"tokens":{"<css-var>":"<hex>"},"summary":"One sentence describing the new theme."}
+
+Available CSS variables and what they control:
+--bg-lavender  background radial layer 1
+--bg-mint      background radial layer 2
+--bg-blush     background radial layer 3
+--bg-cream     background base
+--wood         shelf surface
+--wood-edge    shelf edge and lip
+--wood-shadow  shelf shadow color
+--ink          primary text (must stay readable — keep dark)
+--ink-soft     muted / secondary text
+--accent       primary accent (buttons, focus rings, slot highlights)
+--accent-deep  deep accent (links, active states)
+--mint-deep    secondary accent
+
+Rules:
+- All colors must be soft and muted — pastel or semi-pastel only, never harsh or saturated.
+- Background vars (--bg-*) must be light and atmospheric.
+- --ink must contrast sufficiently against the background (keep it dark).
+- You may change any subset; omit vars you want unchanged.
+- Return ONLY the JSON object, nothing else.`;
+
+  let accumulated = "";
+  let errorMsg = null;
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5",
+        max_tokens: 512,
+        stream: true,
+        system: SYSTEM,
+        messages: [{ role: "user", content: `Theme request: ${prompt}` }],
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      errorMsg = err?.error?.message || `API error ${resp.status}`;
+    } else {
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (raw === "[DONE]") continue;
+          try {
+            const evt = JSON.parse(raw);
+            if (evt.type === "content_block_delta" && evt.delta?.type === "text_delta") {
+              accumulated += evt.delta.text;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+  } catch (e) {
+    errorMsg = e.message || "Network error";
+  }
+
+  aiGenBtn.disabled = false;
+
+  if (errorMsg) {
+    setAiStatus("Error: " + errorMsg);
+    return;
+  }
+
+  try {
+    const cleaned = accumulated.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+    const result = JSON.parse(cleaned);
+    if (!result.tokens || typeof result.tokens !== "object") throw new Error("No tokens field");
+    applyTokens(result.tokens);
+    setAiStatus(result.summary || "Theme applied — use Reset to revert.");
+    toast("Theme applied ✨");
+  } catch (e) {
+    setAiStatus("Couldn't parse AI response. Please try again.");
+    console.error("AI theme parse error:", e, accumulated);
+  }
 };
 
 /* ---------- boot ---------- */
